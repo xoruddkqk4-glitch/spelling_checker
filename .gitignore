@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Chainlit runtime
+.chainlit/translations/
+.files/
+
+# Local run artifacts (exam documents / findings)
+inputs/*
+!inputs/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Secrets
+.env
+.env.*
+
+# Scratch directory
+scratch/
+

@@ -1,0 +1,9 @@
+chainlit
+pymupdf
+python-docx
+kss
+nltk
+language-tool-python
+kiwipiepy
+reportlab
+pykospacing
