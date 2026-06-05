@@ -24,6 +24,7 @@ from src.pipeline import (
     save_findings_csv,
     save_findings_json,
 )
+from chainlit.input_widget import Select, TextInput
 
 import difflib
 
@@ -457,11 +458,65 @@ async def send_page_filter_actions(findings: List[dict]) -> None:
 async def on_chat_start() -> None:
     cl.user_session.set("findings", [])
     cl.user_session.set("temp_report_paths", [])
+
+    # 설정 창 정의 및 전송
+    settings_config = await cl.ChatSettings([
+        Select(
+            id="checker_mode",
+            label="🔍 검사 엔진 선택",
+            values=["local", "llm", "hybrid"],
+            value_labels={
+                "local": "기존 로컬 엔진 (LanguageTool + Kiwi)",
+                "llm": "로컬 LLM 엔진 (LM Studio)",
+                "hybrid": "하이브리드 엔진 (로컬 엔진 + LLM 통합)"
+            },
+            initial_index=1
+        ),
+        TextInput(
+            id="llm_url",
+            label="🔌 LM Studio API 주소",
+            initial="http://localhost:1234/v1"
+        ),
+        Select(
+            id="llm_model",
+            label="🤖 LM Studio 모델명",
+            values=["google/gemma-4-12b", "google/gemma-4-26b-a4b", "google/gemma-4-e4b"],
+            value_labels={
+                "google/gemma-4-12b": "Gemma 4 12B (google/gemma-4-12b)",
+                "google/gemma-4-26b-a4b": "Gemma 4 26B A4B (google/gemma-4-26b-a4b)",
+                "google/gemma-4-e4b": "Gemma 4 E4B (google/gemma-4-e4b)"
+            },
+            initial_index=0
+        )
+    ]).send()
+
+    cl.user_session.set("settings", settings_config)
+
     await cl.Message(
         content=(
             "문서를 업로드하거나 검사할 텍스트를 직접 입력창에 붙여넣어 전송해 주세요.\n"
             "오프라인으로 한/영 맞춤법, 띄어쓰기, 구두점을 검사합니다.\n"
+            "화면 우측 하단(또는 작성 창 근처)의 설정(톱니바퀴)을 눌러 로컬 LLM(LM Studio) 엔진을 활성화할 수 있습니다.\n"
             "지원 문서 형식: .hwpx, .pdf, .docx, .txt"
+        )
+    ).send()
+
+
+@cl.on_settings_update
+async def setup_agent(settings):
+    cl.user_session.set("settings", settings)
+    mode_name = {
+        "local": "기존 로컬 엔진 (LanguageTool + Kiwi)",
+        "llm": "로컬 LLM 엔진 (LM Studio)",
+        "hybrid": "하이브리드 엔진 (로컬 엔진 + LLM 통합)"
+    }.get(settings.get("checker_mode"), "알 수 없음")
+    
+    await cl.Message(
+        content=(
+            f"⚙️ **검사 설정이 업데이트되었습니다.**\n"
+            f"- **엔진 모드:** {mode_name}\n"
+            f"- **API 주소:** {settings.get('llm_url')}\n"
+            f"- **모델명:** `{settings.get('llm_model')}`"
         )
     ).send()
 
@@ -486,7 +541,7 @@ def make_loader_html(status_text: str, is_done: bool = False) -> str:
 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 32px; height: 32px; color: #fff;"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
 </div>
 <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(90deg, #34D399, #059669); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">맞춤법 검사 완료!</h3>
-<p style="margin: 0; font-size: 14px; color: #9CA3AF; text-align: center;">{status_text}</p>
+<p style="margin: 0; font-size: 14px; color: #9CA3AF; text-align: center; white-space: pre-wrap;">{status_text}</p>
 </div>"""
     
     return f"""<div class="spelling-loader-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; border-radius: 16px; background: linear-gradient(135deg, rgba(20, 20, 35, 0.8), rgba(10, 10, 20, 0.95)); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(99, 102, 241, 0.3); box-shadow: 0 10px 30px rgba(99, 102, 241, 0.15); margin: 20px 0; max-width: 480px; color: #fff; font-family: 'Inter', 'Outfit', sans-serif; position: relative; overflow: hidden;">
@@ -502,7 +557,7 @@ def make_loader_html(status_text: str, is_done: bool = False) -> str:
 </svg>
 </div>
 <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(90deg, #a5b4fc, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">맞춤법 검사 진행 중</h3>
-<p style="margin: 0 0 16px 0; font-size: 14px; color: #9CA3AF; text-align: center; min-height: 20px; font-weight: 500;">{status_text}</p>
+<p style="margin: 0 0 16px 0; font-size: 14px; color: #9CA3AF; text-align: center; min-height: 20px; font-weight: 500; white-space: pre-wrap;">{status_text}</p>
 <div style="width: 100%; height: 4px; background: rgba(255, 255, 255, 0.05); border-radius: 2px; position: relative; overflow: hidden;">
 <div style="position: absolute; height: 100%; width: 40%; background: linear-gradient(90deg, #6366f1, #ec4899); border-radius: 2px; animation: spelling-loading-bar 1.5s ease-in-out infinite;"></div>
 </div>
@@ -596,8 +651,10 @@ async def _process_uploaded_file(file) -> None:
                 cl.run_sync(loader_msg.update())
 
             import anyio
+            # 세션에서 설정 불러와 전달
+            settings = cl.user_session.get("settings")
             findings, question_results = await anyio.to_thread.run_sync(
-                run_document_check_with_questions, file_path, file_name, update_progress
+                run_document_check_with_questions, file_path, file_name, update_progress, settings
             )
             step.output = "문서 분석이 완료되었습니다."
             
