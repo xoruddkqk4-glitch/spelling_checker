@@ -454,6 +454,16 @@ async def send_page_filter_actions(findings: List[dict]) -> None:
     ).send()
 
 
+def _update_model_json(model_name: str) -> None:
+    try:
+        public_dir = Path("public")
+        public_dir.mkdir(parents=True, exist_ok=True)
+        with open(public_dir / "current_model.json", "w", encoding="utf-8") as f:
+            json.dump({"model_name": model_name}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 @cl.on_chat_start
 async def on_chat_start() -> None:
     cl.user_session.set("findings", [])
@@ -461,17 +471,6 @@ async def on_chat_start() -> None:
 
     # 설정 창 정의 및 전송
     settings_config = await cl.ChatSettings([
-        Select(
-            id="checker_mode",
-            label="🔍 검사 엔진 선택",
-            values=["local", "llm", "hybrid"],
-            value_labels={
-                "local": "기존 로컬 엔진 (LanguageTool + Kiwi)",
-                "llm": "로컬 LLM 엔진 (LM Studio)",
-                "hybrid": "하이브리드 엔진 (로컬 엔진 + LLM 통합)"
-            },
-            initial_index=1
-        ),
         TextInput(
             id="llm_url",
             label="🔌 LM Studio API 주소",
@@ -491,12 +490,16 @@ async def on_chat_start() -> None:
     ]).send()
 
     cl.user_session.set("settings", settings_config)
+    
+    # 설정된 모델명을 프론트엔드가 조회하도록 JSON 파일로 기록
+    model_name = settings_config.get("llm_model") or "google/gemma-4-12b"
+    _update_model_json(model_name)
 
     await cl.Message(
         content=(
             "문서를 업로드하거나 검사할 텍스트를 직접 입력창에 붙여넣어 전송해 주세요.\n"
-            "오프라인으로 한/영 맞춤법, 띄어쓰기, 구두점을 검사합니다.\n"
-            "화면 우측 하단(또는 작성 창 근처)의 설정(톱니바퀴)을 눌러 로컬 LLM(LM Studio) 엔진을 활성화할 수 있습니다.\n"
+            "로컬 LLM(LM Studio)을 활용하여 초고속 한/영 맞춤법, 띄어쓰기, 구두점을 일괄 검사합니다.\n"
+            "화면 우측 하단(또는 작성 창 근처)의 설정(톱니바퀴)을 눌러 LM Studio 주소 및 모델을 변경할 수 있습니다.\n"
             "지원 문서 형식: .hwpx, .pdf, .docx, .txt"
         )
     ).send()
@@ -505,16 +508,13 @@ async def on_chat_start() -> None:
 @cl.on_settings_update
 async def setup_agent(settings):
     cl.user_session.set("settings", settings)
-    mode_name = {
-        "local": "기존 로컬 엔진 (LanguageTool + Kiwi)",
-        "llm": "로컬 LLM 엔진 (LM Studio)",
-        "hybrid": "하이브리드 엔진 (로컬 엔진 + LLM 통합)"
-    }.get(settings.get("checker_mode"), "알 수 없음")
+    
+    model_name = settings.get("llm_model") or "google/gemma-4-12b"
+    _update_model_json(model_name)
     
     await cl.Message(
         content=(
             f"⚙️ **검사 설정이 업데이트되었습니다.**\n"
-            f"- **엔진 모드:** {mode_name}\n"
             f"- **API 주소:** {settings.get('llm_url')}\n"
             f"- **모델명:** `{settings.get('llm_model')}`"
         )
@@ -631,16 +631,14 @@ async def _process_uploaded_file(file) -> None:
     
     loader_msg.content = make_loader_html(
         f"입력 텍스트 JSON 저장 완료: {saved_input_path.name}\n"
-        "영어 엔진(LanguageTool)은 최초 1회 초기화에 시간이 걸릴 수 있습니다. "
-        "첫 실행에서는 1~2분 정도 소요될 수 있습니다."
+        "로컬 LLM (LM Studio) 서버 연결 확인 중..."
     )
     await loader_msg.update()
 
     try:
         async with cl.Step(name="문서 분석 진행 중") as step:
             step.input = (
-                "영어 엔진(LanguageTool)은 최초 1회 초기화에 시간이 걸릴 수 있습니다. "
-                "첫 실행에서는 1~2분 정도 소요될 수 있습니다."
+                "로컬 LLM(LM Studio)을 활용하여 맞춤법/띄어쓰기/구두점 검사를 수행하고 있습니다."
             )
             def update_progress(msg: str) -> None:
                 step.input = msg
@@ -675,6 +673,35 @@ async def _process_uploaded_file(file) -> None:
                 f"오류 항목 수: {finding_count}"
             )
         ).send()
+    except (ConnectionError, requests.exceptions.RequestException) as exc:
+        error_html = f"""<div class="spelling-loader-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; border-radius: 16px; background: linear-gradient(135deg, rgba(40, 20, 20, 0.8), rgba(20, 10, 10, 0.95)); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: 0 10px 30px rgba(239, 68, 68, 0.15); margin: 20px 0; max-width: 480px; color: #fff; font-family: 'Inter', 'Outfit', sans-serif;">
+<div style="display: flex; align-items: center; justify-content: center; width: 60px; height: 60px; background: linear-gradient(135deg, #EF4444, #B91C1C); border-radius: 50%; box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); margin-bottom: 16px;">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width: 32px; height: 32px; color: #fff;"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+</div>
+<h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 700; letter-spacing: -0.5px; background: linear-gradient(90deg, #F87171, #EF4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">LM Studio 연결 실패</h3>
+<p style="margin: 0; font-size: 14px; color: #E5E7EB; text-align: center; white-space: pre-wrap;">LM Studio 서버가 오프라인 상태이거나 모델이 로드되지 않았습니다.</p>
+</div>"""
+        loader_msg.content = error_html
+        await loader_msg.update()
+
+        guide_message = (
+            "🔌 **로컬 LLM (LM Studio) 서버 연결 오류 발생**\n\n"
+            "맞춤법 검사를 수행하기 위해 아래 안내에 따라 LM Studio 서버 설정을 완료해 주세요.\n\n"
+            "### **[LM Studio 서버 구동 및 설정 가이드]**\n"
+            "1. **LM Studio 실행 및 모델 로드**\n"
+            "   - PC에서 **LM Studio** 프로그램을 실행합니다.\n"
+            "   - 화면 상단의 모델 선택 드롭다운을 클릭한 후, 사용할 모델(예: `google/gemma-4-12b`)을 로드합니다.\n\n"
+            "2. **로컬 서버 활성화**\n"
+            "   - LM Studio 왼쪽 탭에서 **'Local Server' (서버/플러그 모양 아이콘)** 메뉴로 이동합니다.\n"
+            "   - 화면 상단 또는 우측의 **'Start Server'** 버튼을 클릭하여 서버를 실행합니다.\n"
+            "   - 기본 설정 주소인 `http://localhost:1234`가 올바르게 표시되는지 확인합니다.\n\n"
+            "3. **앱 설정 조정**\n"
+            "   - 만약 LM Studio의 Port나 API 경로를 기본값 외에 커스텀하여 사용하고 계시다면, "
+            "본 화면 우측 하단의 **⚙️ 설정(톱니바퀴) 아이콘**을 클릭하여 **'LM Studio API 주소'**와 **'모델명'**을 알맞게 직접 수정해 주세요.\n\n"
+            "**💡 팁:** 위의 설정이 완료되면, 다시 파일 업로드 또는 직접 입력을 수행해 주세요. 바로 맞춤법 검사가 시작됩니다."
+        )
+        await cl.Message(content=guide_message).send()
+        return
     except Exception as exc:
         await cl.Message(content=f"분석 중 오류가 발생했습니다: {exc}").send()
         return

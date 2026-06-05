@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List
 
-import kss
+from kiwipiepy import Kiwi
 import nltk
 
 from .language_detector import detect_language
@@ -11,6 +11,10 @@ from .language_detector import detect_language
 
 QUESTION_NO_INLINE_RE = re.compile(r"^\s*(\d+)\. ")
 QUESTION_NO_STANDALONE_RE = re.compile(r"^\s*(\d+)\.\s*$")
+
+
+# 초고속 형태소 분석 기반 문장 분리 엔진 초기화
+kiwi = Kiwi()
 
 
 def ensure_nltk_punkt() -> None:
@@ -31,7 +35,7 @@ def split_page_sentences(
 ) -> tuple[List[Dict[str, object]], str]:
     ensure_nltk_punkt()
 
-    ko_sentences = kss.split_sentences(text)
+    ko_sentences = [s.text for s in kiwi.split_into_sents(text)]
     en_sentences = nltk.sent_tokenize(text)
     base = ko_sentences if len(ko_sentences) >= len(en_sentences) else en_sentences
 
